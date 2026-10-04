@@ -5,8 +5,8 @@ import { N3Parser, termToId } from './n3.js';
 import N3EntityIndex from './EntityIndex.js';
 import type { ParserRange } from './ProvenanceIndex.js';
 import type {
-  MutableRange, N3ParserOptions, ParseCallbacks, ParseInput, ParserValue, PrefixCallback,
-  QuadParseCallback, Token, VersionCallback,
+  MutableRange, N3ParserOptions, ObserverCallbacks, ParseCallbacks, ParseInput, ParserValue,
+  PrefixCallback, QuadCallbacks, QuadParseCallback, Token, VersionCallback,
 } from './n3-internals.js';
 
 export type LocatedQuadCallback = (quad: RDF.Quad, quadId: number, subject: ParserRange,
@@ -173,9 +173,9 @@ export default class N3TermLocationParser extends N3Parser {
   }
 
   // Use the public token lifecycle; no private token dispatch override.
-  parse(input: string, quadCallback?: null, prefixCallback?: PrefixCallback | null,
+  parse(input: string, quadCallback?: ObserverCallbacks | null, prefixCallback?: PrefixCallback | null,
     versionCallback?: VersionCallback | null): RDF.Quad[];
-  parse(input: ParseInput, quadCallback: ParseCallbacks | QuadParseCallback,
+  parse(input: ParseInput, quadCallback: QuadCallbacks | QuadParseCallback,
     prefixCallback?: PrefixCallback | null, versionCallback?: VersionCallback | null): void;
   parse(input: ParseInput, quadCallback?: ParseCallbacks | QuadParseCallback | null,
     prefixCallback?: PrefixCallback | null, versionCallback?: VersionCallback | null): RDF.Quad[] | void {
@@ -191,7 +191,9 @@ export default class N3TermLocationParser extends N3Parser {
       this._endToken(token);
       if (onTokenEnd) onTokenEnd(token);
     };
-    return super.parse(input, callbacks);
+    // The token callbacks always select N3's callback-object mode, which
+    // returns the quads exactly when there is no quad callback.
+    return super.parse(input as string, callbacks as ObserverCallbacks);
   }
 
   private _beginToken(token: Token): void {

@@ -34,8 +34,18 @@ const fromStream = parser.parse(Readable.from(['<s> <p> <o> .']), {
 });
 expectType<Equal<typeof fromStream, void>>();
 
+// Callbacks that only observe a string parse leave it synchronous.
+const observed = parser.parse('<s> <p> <o> .', { onToken() {}, onPrefix() {} });
+expectType<Equal<typeof observed, RDF.Quad[]>>();
+const withNullQuadCallback = parser.parse('<s> <p> <o> .', { onQuad: null });
+expectType<Equal<typeof withNullQuadCallback, RDF.Quad[]>>();
+
 // @ts-expect-error streams cannot be parsed synchronously
 parser.parse(Readable.from(['<s> <p> <o> .']));
+// @ts-expect-error streams need a quad callback
+parser.parse(Readable.from(['<s> <p> <o> .']), {});
+// @ts-expect-error streams need a quad callback, not only observers
+parser.parse(Readable.from(['<s> <p> <o> .']), { onToken() {} });
 
 // ProvenanceParser parses strings synchronously.
 const result = new ProvenanceParser({

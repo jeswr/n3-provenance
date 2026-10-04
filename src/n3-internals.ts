@@ -45,6 +45,12 @@ export interface ParseCallbacks {
   onTokenEnd?: TokenCallback;
 }
 
+// Callbacks that only observe a synchronous parse.
+export type ObserverCallbacks = Omit<ParseCallbacks, 'onQuad'> & { onQuad?: null };
+
+// Callbacks that receive the quads, so the parse reports through them.
+export type QuadCallbacks = ParseCallbacks & { onQuad: QuadParseCallback };
+
 export interface N3ParserOptions {
   format?: string;
   factory?: RDF.DataFactory;
@@ -78,10 +84,10 @@ export type MutableRange = [number, number, number, number, boolean];
 export declare class N3Parser {
   constructor(options?: N3ParserOptions);
   // Without a quad callback, parses a string synchronously and returns its quads.
-  parse(input: string, callbacks?: null, prefixCallback?: PrefixCallback | null,
+  parse(input: string, callbacks?: ObserverCallbacks | null, prefixCallback?: PrefixCallback | null,
     versionCallback?: VersionCallback | null): RDF.Quad[];
   // With a quad callback, parses a string or stream and reports through it.
-  parse(input: ParseInput, callbacks: ParseCallbacks | QuadParseCallback,
+  parse(input: ParseInput, callbacks: QuadCallbacks | QuadParseCallback,
     prefixCallback?: PrefixCallback | null, versionCallback?: VersionCallback | null): void;
 
   protected _factory: ParserValue;

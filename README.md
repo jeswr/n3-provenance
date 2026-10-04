@@ -122,9 +122,13 @@ compound ranges, literal suffixes, current N3 inverse behavior, error delivery,
 and stream chunk boundaries. The suite passes with 100% statement, branch,
 function, and line coverage.
 
-The core N3 callback contract is tested separately in #731. Source files run
-directly as ES modules; no Babel registration or build step is needed for this
-package. `npm pack` includes `src`, this README, and the MIT license.
+The core N3 callback contract is tested separately in #731.
+`test/types/public-api.ts` checks the public type declarations, and
+`npm run lint` type-checks it.
+
+The TypeScript sources in `src` compile to `dist` with `npm run build`, which
+`npm pack` runs first. The package contains `dist` (JavaScript and type
+declarations), this README, and the MIT license.
 
 ## License
 
