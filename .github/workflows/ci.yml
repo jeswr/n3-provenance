@@ -88,16 +88,16 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Release
+        # Publishes through npm trusted publishing: npm exchanges this job's
+        # id-token for a short-lived token, so there is no npm token secret. The
+        # package's trusted publisher on npmjs.com must name this repository and
+        # ci.yml. Needs npm >= 11.5.1, which Node 24 ships.
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          # npm token for the first publish. Once the package exists, npm trusted
-          # publishing for this workflow can replace it.
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           # Emit npm build provenance (SLSA) via the workflow's id-token.
           NPM_CONFIG_PROVENANCE: true
         # The conventionalcommits preset reads `feat!:` squash titles as
         # breaking; the default angular preset only sees BREAKING CHANGE footers.
         # Stay on preset v9: v10 needs conventional-changelog-writer 9, but
         # semantic-release 25's notes generator still loads writer 8.
-        # `npm publish` builds dist/ through the prepack script.
         run: npx -p semantic-release@25 -p conventional-changelog-conventionalcommits@9 semantic-release
