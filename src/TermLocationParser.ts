@@ -1,47 +1,81 @@
 // **N3TermLocationParser** tracks lexical term occurrences while parsing and
 // emits their compact source ranges alongside each quad.
-import { Parser as N3Parser, termToId } from 'n3';
+import type * as RDF from '@rdfjs/types';
+import { N3Parser, termToId } from './n3.js';
 import N3EntityIndex from './EntityIndex.js';
+import type { ParserRange } from './ProvenanceIndex.js';
+import type {
+  MutableRange, N3ParserOptions, ParseCallbacks, ParserValue, Token,
+} from './n3-internals.js';
+
+export type LocatedQuadCallback = (quad: RDF.Quad, quadId: number, subject: ParserRange,
+  predicate: ParserRange, object: ParserRange, graph: ParserRange) => void;
+
+export interface TermLocationParserOptions extends N3ParserOptions {
+  // Called with each quad, its interned id, and its components' ranges.
+  // Compound ranges stay open until their closing token has been read.
+  onQuad?: LocatedQuadCallback;
+  // Index to intern terms and quads in.
+  entityIndex?: N3EntityIndex;
+}
+
+type SourceRange = Token | MutableRange;
 
 const compoundContexts = new Set(['blank', 'list', 'formula', '<<(', '<<']),
     compoundTokens = new Set(['[', '(', '{', '<<(', '<<']);
 
 class TermOccurrence {
-  constructor(term, range) {
+  term: ParserValue;
+  range: SourceRange | null;
+  entityId: number;
+
+  constructor(term: ParserValue, range: SourceRange | null) {
     this.term = term;
     this.range = range;
     this.entityId = 0;
   }
 
-  get id() { return termToId(this.term); }
-  get termType() { return this.term && this.term.termType; }
-  get value() { return this.term && this.term.value; }
+  get id(): string { return termToId(this.term); }
+  get termType(): string | undefined { return this.term && this.term.termType; }
+  get value(): string | undefined { return this.term && this.term.value; }
 }
 
-function unwrap(value) {
+function unwrap(value: ParserValue): ParserValue {
   return value instanceof TermOccurrence ? value.term : value;
 }
 
-function locate(value, range) {
+function locate(value: ParserValue, range: SourceRange | null): TermOccurrence {
   return new TermOccurrence(unwrap(value), range);
 }
 
-function tokenRange(token, closed) {
+function tokenRange(token: Token, closed: boolean): MutableRange {
   return [token.line, token.start, token.endLine || token.line, token.end, closed];
 }
 
-function closeRange(range, token) {
+function closeRange(range: MutableRange, token: Token): void {
   range[2] = token.endLine || token.line;
   range[3] = token.end;
   range[4] = true;
 }
 
-function occurrenceRange(value) {
+function occurrenceRange(value: ParserValue): SourceRange | null {
   return value instanceof TermOccurrence ? value.range : null;
 }
 
 export default class N3TermLocationParser extends N3Parser {
-  constructor(options = {}) {
+  private _onQuad: LocatedQuadCallback;
+  private _entityIndex: N3EntityIndex;
+  private _sourceRange: SourceRange | null;
+  private _literalRange: MutableRange | null;
+  private _constructingLiteralRange: MutableRange | null;
+  private _currentToken: Token | null;
+  private _blankNodeRanges: (SourceRange | null)[] | null;
+  private _validateTokenRange: boolean;
+  private _untrackedFactory: ParserValue;
+  private _emptyListRange: MutableRange | null = null;
+  private _namedGraphRange: MutableRange | null = null;
+
+  constructor(options: TermLocationParserOptions = {}) {
     const { onQuad, entityIndex, ...parserOptions } = options;
     super(parserOptions);
 
@@ -56,39 +90,44 @@ export default class N3TermLocationParser extends N3Parser {
     this._untrackedFactory = this._factory;
     this._factory = {};
 
-    for (const name of ['namedNode', 'variable'])
-      this._factory[name] = (...args) => this._untrackedFactory[name](...args);
-    this._factory.blankNode = (...args) => {
+    for (const name of ['namedNode', 'variable'] as const)
+      this._factory[name] = (...args: ParserValue[]) => this._untrackedFactory[name](...args);
+    this._factory.blankNode = (...args: ParserValue[]) => {
       const term = this._untrackedFactory.blankNode(...args),
           range = this._blankNodeRanges && this._blankNodeRanges.length ?
-            this._blankNodeRanges.shift() :
+            this._blankNodeRanges.shift()! :
             this._currentToken && (this._currentToken.type === '[' || this._currentToken.type === '{') ?
               this._sourceRange : null;
       return range === null ? term : new TermOccurrence(term, range);
     };
-    this._factory.literal = (...args) => {
+    this._factory.literal = (...args: ParserValue[]) => {
       for (let i = 0; i < args.length; i++)
         args[i] = unwrap(args[i]);
       return new TermOccurrence(
         this._untrackedFactory.literal(...args), this._constructingLiteralRange || this._sourceRange,
       );
     };
-    this._factory.quad = (...args) => {
+    this._factory.quad = (...args: ParserValue[]) => {
       for (let i = 0; i < args.length; i++)
         args[i] = unwrap(args[i]);
       const term = this._untrackedFactory.quad(...args),
           context = this._contextStack[this._contextStack.length - 1];
-      if (!context || !((context.type === '<<(' && this._currentToken.type === ')>>') ||
-                        (context.type === '<<' && this._currentToken.type === '>>')))
+      if (!context || !((context.type === '<<(' && this._currentToken!.type === ')>>') ||
+                        (context.type === '<<' && this._currentToken!.type === '>>')))
         return term;
-      closeRange(context.sourceRange, this._currentToken);
-      return new TermOccurrence(term, context.sourceRange);
+      closeRange(context.sourceRange!, this._currentToken!);
+      return new TermOccurrence(term, context.sourceRange!);
     };
+  }
+
+  // The prefixes declared by the last parsed document.
+  get prefixes(): Record<string, string> {
+    return this._prefixes;
   }
 
   // A quantified entity can reuse an earlier RDF term, but each lexical use is
   // a distinct occurrence.
-  _readEntity(token, quantifier) {
+  protected _readEntity(token: Token, quantifier?: boolean): ParserValue {
     const blankNodeRanges = this._blankNodeRanges;
     this._blankNodeRanges = null;
     // Quantification in the core parser uses N3 terms' private IDs. Resolve
@@ -106,14 +145,15 @@ export default class N3TermLocationParser extends N3Parser {
 
   // Predicate abbreviations resolve to parser constants, so give the constant
   // a fresh occurrence for this spelling.
-  _readPredicate(token) {
+  protected _readPredicate(token: Token): unknown {
     const next = super._readPredicate(token);
     if ((token.type === 'abbreviation' || token.type === 'inverse') && this._predicate !== null)
       this._predicate = locate(this._predicate, this._sourceRange);
     return next;
   }
 
-  _saveContext(type, graph, subject, predicate, object) {
+  protected _saveContext(type: string, graph: ParserValue, subject: ParserValue,
+    predicate: ParserValue, object: ParserValue): void {
     // Preserve the core parser's raw rdf:nil sentinel until its empty-list
     // identity checks have run. Only occurrence metadata leaves this adapter.
     if (type === 'item' && this._emptyListRange && object === this.RDF_NIL)
@@ -121,10 +161,10 @@ export default class N3TermLocationParser extends N3Parser {
 
     super._saveContext(type, graph, subject, predicate, object);
     if (compoundContexts.has(type))
-      this._contextStack[this._contextStack.length - 1].sourceRange = this._sourceRange;
+      this._contextStack[this._contextStack.length - 1].sourceRange = this._sourceRange as MutableRange;
   }
 
-  _restoreContext(type, token) {
+  protected _restoreContext(type: string, token: Token): unknown {
     const context = this._contextStack[this._contextStack.length - 1];
     if (context && context.type === type && context.sourceRange)
       closeRange(context.sourceRange, token);
@@ -132,8 +172,10 @@ export default class N3TermLocationParser extends N3Parser {
   }
 
   // Use the public token lifecycle; no private token dispatch override.
-  parse(input, quadCallback, prefixCallback, versionCallback) {
-    const callbacks = typeof quadCallback === 'function' ?
+  parse(input: string, quadCallback?: ParseCallbacks | ((error: Error | null, quad: RDF.Quad) => void) | null,
+    prefixCallback?: ((prefix: string, prefixNode: RDF.NamedNode) => void) | null,
+    versionCallback?: ((version: string) => void) | null): RDF.Quad[] {
+    const callbacks: ParseCallbacks = typeof quadCallback === 'function' ?
       { onQuad: quadCallback, onPrefix: prefixCallback, onVersion: versionCallback } :
       { ...quadCallback };
     const { onToken, onTokenEnd } = callbacks;
@@ -148,7 +190,7 @@ export default class N3TermLocationParser extends N3Parser {
     return super.parse(input, callbacks);
   }
 
-  _beginToken(token) {
+  private _beginToken(token: Token): void {
     if (token.type === 'comment') return;
     if (this._validateTokenRange) {
       if (!Number.isFinite(token.line) || !Number.isFinite(token.start) ||
@@ -172,7 +214,7 @@ export default class N3TermLocationParser extends N3Parser {
       this._constructingLiteralRange = this._literalRange;
   }
 
-  _endToken(token) {
+  private _endToken(token: Token): void {
     if (token.type === 'comment') return;
     this._constructingLiteralRange = null;
 
@@ -186,7 +228,7 @@ export default class N3TermLocationParser extends N3Parser {
       this._literalRange = null;
   }
 
-  _completeLiteral(token, component) {
+  protected _completeLiteral(token: Token, component?: string): unknown {
     this._constructingLiteralRange = this._literalRange;
     try {
       return super._completeLiteral(token, component);
@@ -196,10 +238,10 @@ export default class N3TermLocationParser extends N3Parser {
     }
   }
 
-  _readListItem(token) {
+  protected _readListItem(token: Token): unknown {
     const context = this._contextStack[this._contextStack.length - 1];
     if (token.type !== ')') {
-      const headRange = this._subject === null ? context.sourceRange : null;
+      const headRange = this._subject === null ? context.sourceRange! : null;
       this._blankNodeRanges = token.type === '[' || token.type === '{' ?
         [headRange, this._sourceRange] : [headRange];
     }
@@ -207,12 +249,12 @@ export default class N3TermLocationParser extends N3Parser {
     // Empty lists use a raw singleton inside the grammar. Attach their
     // occurrence after the grammar has checked that sentinel by identity.
     // Explicit rdf:nil terms are already wrapped, even with an interning factory.
-    const emptyRange = token.type === ')' && this._subject === null ? context.sourceRange : null;
+    const emptyRange = token.type === ')' && this._subject === null ? context.sourceRange! : null;
     this._emptyListRange = emptyRange;
     try {
       const next = super._readListItem(token);
       if (emptyRange) {
-        for (const component of ['_subject', '_predicate', '_object'])
+        for (const component of ['_subject', '_predicate', '_object'] as const)
           if (this[component] === this.RDF_NIL)
             this[component] = locate(this[component], emptyRange);
       }
@@ -224,31 +266,31 @@ export default class N3TermLocationParser extends N3Parser {
     }
   }
 
-  _readFormulaTail(token) {
+  protected _readFormulaTail(token: Token): unknown {
     if (token.type !== '}')
       return super._readFormulaTail(token);
 
     const context = this._contextStack[this._contextStack.length - 1],
         formula = this._graph,
-        range = context.sourceRange,
+        range = context.sourceRange!,
         empty = this._emptyFormula,
-        component = context.subject === formula ? 'subject' :
-                    context.predicate === formula ? 'predicate' : 'object';
+        component = context.subject === formula ? '_subject' :
+                    context.predicate === formula ? '_predicate' : '_object';
     const next = super._readFormulaTail(token);
     if (empty && this._emptyFormulaAsTrue)
-      this[`_${component}`] = locate(this.N3_TRUE, range);
+      this[component] = locate(this.N3_TRUE, range);
     return next;
   }
 
-  _readNamedGraphLabel(token) {
+  protected _readNamedGraphLabel(token: Token): unknown {
     if (token.type === '[')
-      this._namedGraphRange = this._sourceRange;
+      this._namedGraphRange = this._sourceRange as MutableRange;
     return super._readNamedGraphLabel(token);
   }
 
-  _readNamedGraphBlankLabel(token) {
+  protected _readNamedGraphBlankLabel(token: Token): unknown {
     if (token.type === ']') {
-      closeRange(this._namedGraphRange, token);
+      closeRange(this._namedGraphRange!, token);
       this._blankNodeRanges = [this._namedGraphRange];
     }
     try {
@@ -260,28 +302,30 @@ export default class N3TermLocationParser extends N3Parser {
     }
   }
 
-  _termId(value) {
+  private _termId(value: ParserValue): number {
     if (value instanceof TermOccurrence)
       return value.entityId || (value.entityId = this._entityIndex.intern(value.term));
     return this._entityIndex.intern(value);
   }
 
-  _emit(subject, predicate, object, graph) {
+  protected _emit(subject: ParserValue, predicate: ParserValue, object: ParserValue, graph: ParserValue): void {
     this._emitLocated(subject, predicate, object, graph);
   }
 
-  _emitInDirection(subject, predicate, object, graph, inversePredicate) {
+  protected _emitInDirection(subject: ParserValue, predicate: ParserValue, object: ParserValue,
+    graph: ParserValue, inversePredicate: boolean): void {
     if (inversePredicate)
       this._emitLocated(object, predicate, subject, graph);
     else
       this._emitLocated(subject, predicate, object, graph);
   }
 
-  _emitCurrentInDirection(subject, predicate, object, graph) {
+  protected _emitCurrentInDirection(subject: ParserValue, predicate: ParserValue, object: ParserValue,
+    graph: ParserValue): void {
     this._emitInDirection(subject, predicate, object, graph, this._inversePredicate);
   }
 
-  _emitLocated(subject, predicate, object, graph) {
+  private _emitLocated(subject: ParserValue, predicate: ParserValue, object: ParserValue, graph: ParserValue): void {
     // Nested empty lists emit their membership before _readListItem returns.
     if (this._emptyListRange && predicate === this.RDF_FIRST && object === this.RDF_NIL)
       object = locate(object, this._emptyListRange);

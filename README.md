@@ -1,4 +1,4 @@
-# @jeswr/n3-provenance
+# n3-provenance
 
 Lexical provenance for N3.js as a separate ES module package. Adapted from
 [rdfjs/N3.js#731](https://github.com/rdfjs/N3.js/pull/731) and
@@ -11,20 +11,18 @@ The callbacks replace the old private `_readToken` override. They are public
 observation points, **not a complete public grammar-extension API**. This package
 still subclasses private entity, literal, context, factory, and quad-emission
 methods to associate RDF terms with individual lexical occurrences. Its index
-adapter also uses N3 EntityIndex internals. This experimental package pins its N3
-dependency to Git revision `a89bd27` until #731 is merged and released. Run
-the integration tests when updating that pin.
+adapter also uses N3 EntityIndex internals, so run the integration tests when
+updating the N3 dependency. It requires N3 2.13.4 or later, the first release with
+these callbacks.
 
 ## Try it
 
-The package is not yet published to npm. Install it from GitHub:
-
 ```sh
-npm install github:jeswr/n3-provenance
+npm install n3-provenance
 ```
 
-For development, use Node.js 22.18+ or 24.11+ (the pinned N3 Git dependency runs
-its Babel build during installation):
+The package is written in TypeScript and ships its type declarations. For
+development, use Node.js 22.18+ or 24.11+:
 
 ```sh
 git clone https://github.com/jeswr/n3-provenance.git
@@ -32,11 +30,12 @@ cd n3-provenance
 npm ci
 npm test
 npm run lint
+npm run build
 npm run demo
 ```
 
 ```js
-import ProvenanceParser from '@jeswr/n3-provenance';
+import ProvenanceParser from 'n3-provenance';
 import { Store } from 'n3';
 
 const source = '<s> <p> "text"@en .\n<s> <p> "text"@en .';

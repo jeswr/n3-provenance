@@ -1,5 +1,5 @@
 import { Store } from 'n3';
-import ProvenanceParser from '../src/index.js';
+import ProvenanceParser from 'n3-provenance';
 
 const source = '<s> <p> "text"@en .\n<s> <p> "text"@en .';
 const { quads, provenance } = new ProvenanceParser({ baseIRI: 'https://example.org/' }).parse(source);
