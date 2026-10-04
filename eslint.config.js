@@ -44,4 +44,9 @@ export default [
     files: ['test/**'],
     languageOptions: { globals: globals.jest },
   },
+  {
+    // Type tests declare values only to check their types.
+    files: ['test/types/**'],
+    rules: { '@typescript-eslint/no-unused-vars': 'off' },
+  },
 ];

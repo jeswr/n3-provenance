@@ -17,12 +17,30 @@ export interface Token {
 
 export type TokenCallback = (token: Token) => void;
 
+// A readable stream of document text, such as a Node.js stream.
+export interface ParseInputStream {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): unknown;
+  setEncoding?(encoding: string): unknown;
+}
+
+export type ParseInput = string | ParseInputStream;
+
+// Receives each quad, then `(null, null, prefixes)` once the document is
+// complete, or the error that stopped parsing.
+export type QuadParseCallback = (error: Error | null, quad?: RDF.Quad | null,
+  prefixes?: Record<string, string>) => void;
+
+export type PrefixCallback = (prefix: string, prefixNode: RDF.NamedNode) => void;
+
+export type VersionCallback = (version: string) => void;
+
 export interface ParseCallbacks {
-  onQuad?: ((error: Error | null, quad: RDF.Quad) => void) | null;
-  onPrefix?: ((prefix: string, prefixNode: RDF.NamedNode) => void) | null;
+  onQuad?: QuadParseCallback | null;
+  onPrefix?: PrefixCallback | null;
   onComment?: (comment: string) => void;
-  onVersion?: ((version: string) => void) | null;
-  onDirective?: (...args: unknown[]) => void;
+  onVersion?: VersionCallback | null;
+  onDirective?: (...args: never[]) => void;
   onToken?: TokenCallback;
   onTokenEnd?: TokenCallback;
 }
@@ -59,9 +77,12 @@ export type MutableRange = [number, number, number, number, boolean];
 
 export declare class N3Parser {
   constructor(options?: N3ParserOptions);
-  parse(input: string, callbacks?: ParseCallbacks | ((error: Error | null, quad: RDF.Quad) => void) | null,
-    prefixCallback?: ((prefix: string, prefixNode: RDF.NamedNode) => void) | null,
-    versionCallback?: ((version: string) => void) | null): RDF.Quad[];
+  // Without a quad callback, parses a string synchronously and returns its quads.
+  parse(input: string, callbacks?: null, prefixCallback?: PrefixCallback | null,
+    versionCallback?: VersionCallback | null): RDF.Quad[];
+  // With a quad callback, parses a string or stream and reports through it.
+  parse(input: ParseInput, callbacks: ParseCallbacks | QuadParseCallback,
+    prefixCallback?: PrefixCallback | null, versionCallback?: VersionCallback | null): void;
 
   protected _factory: ParserValue;
   protected _contextStack: ParserContext[];
@@ -76,7 +97,7 @@ export declare class N3Parser {
   protected _inversePredicate: boolean;
   protected _emptyFormula: boolean;
   protected _emptyFormulaAsTrue: boolean;
-  protected _callback: (error: Error | null, quad?: RDF.Quad) => void;
+  protected _callback: QuadParseCallback;
   protected RDF_NIL: RDF.NamedNode;
   protected RDF_FIRST: RDF.NamedNode;
   protected N3_TRUE: RDF.Literal;
