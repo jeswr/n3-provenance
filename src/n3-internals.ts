@@ -40,7 +40,7 @@ export interface ParseCallbacks {
   onPrefix?: PrefixCallback | null;
   onComment?: (comment: string) => void;
   onVersion?: VersionCallback | null;
-  onDirective?: (...args: never[]) => void;
+  onDirective?: (name: string) => void;
   onToken?: TokenCallback;
   onTokenEnd?: TokenCallback;
 }
