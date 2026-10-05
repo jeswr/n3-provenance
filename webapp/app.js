@@ -113,13 +113,18 @@ for (const [label, value] of Object.entries(FORMATS))
   formatSelect.add(new Option(label, value));
 EXAMPLES.forEach((example, i) => exampleSelect.add(new Option(example.name, i)));
 
+// ?data=<document> pre-fills the editor; ?format=<media type> picks the syntax
+const params = new URLSearchParams(location.search);
+if ([...formatSelect.options].some(option => option.value === params.get('format')))
+  formatSelect.value = params.get('format');
+
 let pinned = null;          // regions that stay lit when the mouse leaves
 let chips = [];             // { element, from, to } for editor -> result lookup
 let parseTimer;
 
 const view = new EditorView({
   parent: $('editor'),
-  doc: EXAMPLES[0].doc,
+  doc: params.has('data') ? params.get('data') : EXAMPLES[0].doc,
   extensions: [
     basicSetup,
     StreamLanguage.define(turtle),
