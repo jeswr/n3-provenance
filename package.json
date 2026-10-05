@@ -34,6 +34,8 @@
     "prepack": "npm run build",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "lint": "tsc -p . --noEmit && tsc -p test/types && eslint .",
+    "webapp:build": "esbuild webapp/app.js --bundle --format=esm --outfile=webapp/dist/app.js",
+    "webapp": "esbuild webapp/app.js --bundle --format=esm --outfile=webapp/dist/app.js --servedir=webapp --serve=8000 --watch=forever",
     "demo": "node examples/demo.js"
   },
   "dependencies": {
@@ -41,7 +43,13 @@
     "n3": "^2.13.4"
   },
   "devDependencies": {
+    "@codemirror/language": "6.12.4",
+    "@codemirror/legacy-modes": "6.5.4",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
     "@rdfjs/data-model": "1.3.4",
+    "codemirror": "6.0.2",
+    "esbuild": "0.28.2",
     "eslint": "10.9.1",
     "globals": "17.11.0",
     "jest": "30.4.2",

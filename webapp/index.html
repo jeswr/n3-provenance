@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>n3-provenance</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>n3-provenance</h1>
+    <label>Example <select id="example"></select></label>
+    <label>Format <select id="format"></select></label>
+    <label>Base <input id="base" size="26" value="http://example.org/" spellcheck="false"></label>
+    <span class="legend">
+      <span class="term subject">subject</span>
+      <span class="term predicate">predicate</span>
+      <span class="term object">object</span>
+      <span class="term graph">graph</span>
+    </span>
+  </header>
+  <main>
+    <section id="editor" aria-label="Input document"></section>
+    <section aria-label="Provenance">
+      <p id="status" role="status"></p>
+      <div id="results"></div>
+      <p class="hint">Hover a term or an utterance to highlight where it was written; click to pin the highlight (click again or press Escape to release). Hovering text in the editor lights up the terms written there.</p>
+    </section>
+  </main>
+  <script type="module" src="dist/app.js"></script>
+</body>
+</html>
