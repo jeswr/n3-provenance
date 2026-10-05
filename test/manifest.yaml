@@ -1,0 +1,350 @@
+# Declarative provenance cases, run by manifest-test.js.
+#
+# vars:    ${name} placeholders substituted everywhere in the manifest.
+# groups:  one jest `describe` each, holding a list of entries.
+#
+# entry:
+#   label      test name
+#   doc        source text (use `|-` blocks for multi-line; single quotes keep
+#              backslashes literal, double quotes give \n \r ﻿ escapes)
+#   options    ProvenanceParser options; `factory` names one of
+#              frozen-interning | rdf-data-model
+#   throws     parsing must throw an error containing this text (no expect)
+#   quadCount  expected number of quads
+#   expect     one row, or a list of rows
+#   each       list of bindings; the entry is instantiated once per item and
+#              ${name} placeholders are replaced from it. A string that is
+#              exactly one placeholder is replaced by the bound value itself
+#              (so a binding may be a list), e.g. texts: '${texts}'.
+#
+# row (checks the quad's utterances; component keys check the first one):
+#   index      which quad, counting from 0 (negative counts from the end);
+#              default: the row's position in the list
+#   match      instead of index: the first quad matching these terms. A string
+#              is an IRI (relative to http://example.org/, or `rdf:first`);
+#              {termType: BlankNode} compares term fields
+#   all        with match (or alone): every matching quad in order; component
+#              values are then lists, one element per quad
+#   count      expected number of utterances of the quad
+#   occurrences  list of component maps, checked against utterance 0, 1, ...
+#   texts      shorthand: source text of [subject, predicate, object, graph]
+#   subject | predicate | object | graph
+#              null            no range
+#              '<s>'           source text of the range
+#              {text, start: [line, column], end: [line, column]}  any subset
+vars:
+  nil: <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil>
+
+groups:
+- group: utterance multiset semantics
+  entries:
+  - label: records two utterances for the same quad uttered twice
+    doc: |-
+      <s> <p> <o> .
+      <s> <p> <o> .
+    quadCount: 2
+    expect:
+      index: 0
+      count: 2
+      occurrences:
+      - subject: {text: '<s>', start: [1, 0]}
+      - subject: {text: '<s>', start: [2, 0]}
+
+  - label: reuses the subject span across a predicateObjectList
+    doc: |-
+      <s> <p1> <o1> ;
+          <p2> <o2> .
+    expect:
+    - subject: {text: '<s>', start: [1, 0], end: [1, 3]}
+      predicate: '<p1>'
+    - subject: {text: '<s>', start: [1, 0], end: [1, 3]}
+      predicate: {text: '<p2>', start: [2, 4]}
+
+  - label: converts indented line positions after ${name} to source offsets
+    each:
+    - {name: LF, newline: "\n"}
+    - {name: CRLF, newline: "\r\n"}
+    - {name: CR, newline: "\r"}
+    doc: "<s> <p> <o> .${newline}  <s2> <p2> <o2> ."
+    expect: {index: 1, subject: {text: '<s2>', start: [2, 2]}}
+
+  - label: carries all four ranges in N-Quads
+    doc: '<http://e/s> <http://e/p> <http://e/o> <http://e/g> .'
+    options: {format: application/n-quads}
+    expect:
+      texts: ['<http://e/s>', '<http://e/p>', '<http://e/o>', '<http://e/g>']
+
+  - label: associates inverted N3 terms with their resulting quad positions
+    doc: '<o> is <p> of <s> .'
+    options: {format: text/n3}
+    expect: {texts: ['<s>', '<p>', '<o>']}
+
+  - label: converts a multiline literal containing ${name} to a source range
+    each:
+    - {name: LF, newline: "\n"}
+    - {name: CRLF, newline: "\r\n"}
+    - {name: CR, newline: "\r"}
+    doc: '<s> <p> """first${newline}second""" .'
+    expect:
+      object: {text: '"""first${newline}second"""', start: [1, 8], end: [2, 9]}
+
+  - label: includes a suffix after a multiline literal
+    doc: |-
+      <s> <p> """first
+      second"""@en--rtl .
+    expect:
+      object: |-
+        """first
+        second"""@en--rtl
+
+  - label: accounts for a byte-order mark when converting line positions
+    doc: "﻿<s> <p> <o> ."
+    expect: {subject: {text: '<s>', start: [1, 1]}}
+
+  - label: covers original escaped spellings rather than decoded values
+    doc: '@prefix ex: <http://e/>. ex:s ex:p\-x "a\tb" .'
+    expect: {texts: ['ex:s', 'ex:p\-x', '"a\tb"']}
+
+  - label: gives anonymous property-list terms their complete span
+    doc: '[ <p> <o> ] <q> <r> .'
+    expect: {match: {predicate: p}, subject: '[ <p> <o> ]', object: '<o>'}
+
+  - label: spans literals, including language-tagged ones
+    doc: '<s> <p> "hello"@en .'
+    expect: {object: '"hello"@en'}
+
+- group: value-keyed lookup
+  entries:
+  - label: preserves duplicate insertion order
+    doc: |-
+      <s> <p> <o> .
+
+        <s> <p> <o> .
+    expect:
+      index: 0
+      occurrences:
+      - subject: {start: [1, 0]}
+      - subject: {start: [3, 2]}
+
+- group: TriG
+  entries:
+  - label: carries the graph label span
+    doc: '<g> { <s> <p> <o> }'
+    options: {format: application/trig}
+    expect: {graph: '<g>'}
+
+- group: RDF 1.2
+  entries:
+  - label: spans annotation-derived reification quads
+    doc: '<s> <p> <o> ~ <r> {| <a> <b> |} .'
+    expect:
+    - {match: {predicate: 'rdf:reifies'}, subject: '<r>'}
+    - {match: {predicate: a}, object: '<b>'}
+
+- group: coverage of span-less and exotic terms
+  entries:
+  - label: spans the complete 'a' predicate
+    doc: '<s> a <C> .'
+    expect: {predicate: a, object: '<C>'}
+
+  - label: spans the complete ${operator} predicate abbreviation
+    each:
+    - {operator: '='}
+    - {operator: '=>'}
+    - {operator: '<='}
+    doc: '<s> ${operator} <o> .'
+    options: {format: text/n3}
+    expect: {predicate: '${operator}'}
+
+  - label: spans language-tagged literals inside collections
+    doc: '<s> <p> ("x"@en) .'
+    expect: {match: {predicate: 'rdf:first'}, object: '"x"@en'}
+
+  - label: spans subject literals in N3 mode
+    doc: '"s" <p> <o> .'
+    options: {format: text/n3}
+    expect: {subject: '"s"'}
+
+  - label: spans predicate literals in N3 mode
+    doc: '<s> "p" <o> .'
+    options: {format: text/n3}
+    expect: {predicate: '"p"'}
+
+  - label: keeps adjacent N3 term ranges independent in ${doc}
+    each:
+    - {doc: '"s" "p" "o" .', texts: ['"s"', '"p"', '"o"']}
+    - {doc: '"s" 42 "o" .', texts: ['"s"', '42', '"o"']}
+    - {doc: '42 "p" true .', texts: ['42', '"p"', 'true']}
+    - {doc: '"s"@en "p" "o" .', texts: ['"s"@en', '"p"', '"o"']}
+    doc: '${doc}'
+    options: {format: text/n3}
+    expect: {texts: '${texts}'}
+
+  - label: keeps adjacent literal ranges independent inside a collection
+    doc: '<s> <p> ("a" "b" 42 "c") .'
+    options: {format: text/n3}
+    expect:
+      match: {predicate: 'rdf:first'}
+      all: true
+      object: ['"a"', '"b"', '42', '"c"']
+
+  # Numbers and booleans reach the parser as a single `literal` token whose
+  # prefix already holds the datatype, so they bypass the pending literal-token path.
+  - label: spans pre-datatyped object literals
+    doc: '<s> <p> 42, 1.5e0, true .'
+    expect: {all: true, object: ['42', '1.5e0', 'true']}
+
+  - label: spans pre-datatyped literals in collections
+    doc: '<s> <p> (42) .'
+    expect: {match: {predicate: 'rdf:first'}, object: '42'}
+
+  - label: spans pre-datatyped subject and predicate literals in N3 mode
+    doc: '42 true <o> .'
+    options: {format: text/n3}
+    expect: {subject: '42', predicate: 'true'}
+
+  - label: indexes triple terms
+    doc: '<a> <b> <<( <s> <p> <o> )>> .'
+    expect: {index: 0, count: 1}
+
+  - label: spans rdf:nil denoted by an empty collection
+    doc: '() <p> <o> .'
+    expect: {subject: '()'}
+
+  - label: spans complete non-empty and nested collections
+    doc: '(<a> (<b>)) <p> <o> .'
+    expect:
+    - {match: {predicate: p}, subject: '(<a> (<b>))'}
+    - {match: {predicate: 'rdf:first', object: {termType: BlankNode}}, object: '(<b>)'}
+
+  - label: spans a collection used as a predicate
+    doc: '<s> (<p>) <o> .'
+    options: {format: text/n3}
+    expect: {match: {object: o}, predicate: '(<p>)'}
+
+  - label: leaves generated list cells and predicates without ranges
+    doc: '(<a> <b>) <p> <o> .'
+    expect: {match: {predicate: 'rdf:first', object: b}, subject: null, predicate: null}
+
+  - label: spans a property list used as a list item
+    doc: '([ <p> <o> ]) <q> <r> .'
+    expect: {match: {predicate: 'rdf:first'}, object: '[ <p> <o> ]'}
+
+  - label: leaves path-generated terms without ranges
+    doc: '<s>!<p> <q> <o> .'
+    options: {format: text/n3}
+    expect:
+    - {match: {predicate: p}, object: null}
+    - {match: {predicate: q}, subject: null}
+
+  - label: leaves explicit-quantifier list structure without ranges
+    doc: '@forAll <x>. <x> <p> <o> .'
+    options: {format: text/n3, explicitQuantifiers: true}
+    expect: {match: {predicate: 'rdf:first'}, subject: null, predicate: null, object: '<x>'}
+
+  - label: spans complete anonymous property lists and formulas
+    doc: '[ <p> <o> ] <q> { <s> <p2> <o2> } .'
+    options: {format: text/n3}
+    expect:
+    - {match: {predicate: q}, subject: '[ <p> <o> ]', object: '{ <s> <p2> <o2> }'}
+    - {match: {predicate: p2}, graph: '{ <s> <p2> <o2> }'}
+
+  - label: spans formulas whose final statement has explicit punctuation
+    doc: '{ <s> <p> <o> . } <q> <r> .'
+    options: {format: text/n3}
+    expect: {match: {predicate: q}, subject: '{ <s> <p> <o> . }'}
+
+  - label: spans a formula used as a predicate
+    doc: '<s> { <a> <b> <c> } <o> .'
+    options: {format: text/n3}
+    expect: {match: {subject: s}, predicate: '{ <a> <b> <c> }'}
+
+  - label: spans an empty formula that denotes true
+    doc: '{} <p> <o> .'
+    options: {format: text/n3, emptyFormulaAsTrue: true}
+    expect: {index: 0, subject: '{}'}
+
+  - label: spans complete RDF-star triple terms
+    doc: '<a> <b> <<( <s> <p> <o> )>> .'
+    expect: {index: 0, object: '<<( <s> <p> <o> )>>'}
+
+  - label: preserves an invalid RDF-star closing-token error
+    doc: '<a> <b> <<( <s> <p> <o> >> .'
+    throws: 'Expected )>> but got >>'
+
+  - label: spans the complete embedded triple in N3 reification
+    doc: '<a> <b> << <s> <p> <o> >> .'
+    options: {format: text/n3}
+    expect: {match: {predicate: 'rdf:reifies'}, subject: null, object: '<< <s> <p> <o> >>'}
+
+  - label: uses the lexical range of an explicit reifier
+    doc: '<a> <b> << <s> <p> <o> ~ <r> >> .'
+    options: {format: text/n3}
+    expect: {match: {predicate: 'rdf:reifies'}, subject: '<r>'}
+
+  - label: preserves an invalid N3 reification closing-token error
+    doc: '<a> <b> << <s> <p> <o> )>> .'
+    options: {format: text/n3}
+    throws: 'Expected >> but got )>>'
+
+  - label: spans a blank named graph label as []
+    doc: 'GRAPH [] { <s> <p> <o> . }'
+    options: {format: application/trig}
+    expect: {index: 0, graph: '[]'}
+
+  - label: spans an IRI following the GRAPH keyword
+    doc: 'GRAPH <g> { <s> <p> <o> . }'
+    options: {format: application/trig}
+    expect: {index: 0, graph: '<g>'}
+
+  - label: preserves an invalid blank graph-label error
+    doc: 'GRAPH [ <g> { <s> <p> <o> . }'
+    options: {format: application/trig}
+    throws: Invalid graph label
+
+- group: occurrence tracking
+  entries:
+  - label: keeps the opening token active for delayed literal construction
+    doc: '<s> <p> "typed"^^<type>, "directed"@en--ltr, 42 .'
+    expect:
+      all: true
+      object: ['"typed"^^<type>', '"directed"@en--ltr', '42']
+
+  - label: locates each use of a quantified entity at its own token
+    doc: '@forAll <x>. <x> <p> <o> .'
+    options: {format: text/n3}
+    expect: {match: {predicate: p}, subject: {text: '<x>', start: [1, 13]}}
+
+  - label: locates simultaneous uses of one quantified term independently
+    doc: '@forAll <x>. <x> <x> <x> .'
+    options: {format: text/n3}
+    expect:
+      index: -1
+      subject: {start: [1, 13], end: [1, 16]}
+      predicate: {start: [1, 17], end: [1, 20]}
+      object: {start: [1, 21], end: [1, 24]}
+
+  - label: does not confuse an interned rdf:nil term with a list placeholder
+    doc: '${nil} <p> () .'
+    options: {factory: frozen-interning}
+    expect: {index: 0, subject: '${nil}', object: '()'}
+
+  - label: carries the location of an IRI property-list identifier
+    doc: '[id <s> <p> <o>].'
+    options: {format: text/n3}
+    expect: {index: 0, subject: '<s>'}
+
+  - label: propagates entity parse errors
+    doc: '<s> <p> .'
+    throws: Expected entity but got .
+
+- group: Empty-list identity with interning factories
+  entries:
+  - label: preserves the separate lexical spellings in ${doc}
+    each:
+    - {doc: '${nil} () ().', texts: ['${nil}', '()', '()']}
+    - {doc: '() ${nil} ().', texts: ['()', '${nil}', '()']}
+    - {doc: '() () ${nil}.', texts: ['()', '()', '${nil}']}
+    doc: '${doc}'
+    options: {format: text/n3, factory: frozen-interning}
+    expect: {index: 0, texts: '${texts}'}
