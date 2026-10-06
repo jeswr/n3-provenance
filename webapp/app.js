@@ -73,11 +73,23 @@ function toOffsets(doc, range) {
   return { from: at(range.start), to: at(range.end) };
 }
 
+// A region is { from, to, component } in editor offsets.
+//
+// The API locates a term by its ranges: one for a simple term and, for a term
+// written as a nested structure -- a blank node's [ property list ], a
+// collection's ( ... ), a formula's { ... }, a triple term's <<( ... )>> --
+// one per delimiter, leaving what is written between them to the terms
+// located there. Each range is painted as given.
+function regionsOf(doc, ranges, component) {
+  return ranges.map(range => ({ ...toOffsets(doc, range), component }));
+}
+
 function highlight(view, regions, { scroll = false } = {}) {
-  const marks = regions.map(({ range, component }) => {
-    const { from, to } = toOffsets(view.state.doc, range);
-    return Decoration.mark({ class: `hl-${component}` }).range(from, to);
-  }).filter(mark => mark.to > mark.from);
+  const length = view.state.doc.length;   // regions may predate an edit the reparse has not caught up with
+  const marks = regions
+    .map(({ from, to, component }) => ({ from: Math.min(from, length), to: Math.min(to, length), component }))
+    .filter(({ from, to }) => to > from)
+    .map(({ from, to, component }) => Decoration.mark({ class: `hl-${component}` }).range(from, to));
   const effects = [hover.effect.of(Decoration.set(marks, true))];
   if (scroll && marks.length > 0)
     effects.push(EditorView.scrollIntoView(marks[0].from, { y: 'nearest' }));
@@ -119,7 +131,7 @@ if ([...formatSelect.options].some(option => option.value === params.get('format
   formatSelect.value = params.get('format');
 
 let pinned = null;          // regions that stay lit when the mouse leaves
-let chips = [];             // { element, from, to } for editor -> result lookup
+let chips = [];             // { element, regions } for editor -> result lookup
 let parseTimer;
 
 const view = new EditorView({
@@ -139,8 +151,9 @@ const view = new EditorView({
     EditorView.domEventHandlers({
       mousemove(event, editor) {
         const pos = editor.posAtCoords({ x: event.clientX, y: event.clientY });
-        for (const { element, from, to } of chips)
-          element.classList.toggle('reverse', pos !== null && pos >= from && pos < to);
+        for (const { element, regions } of chips)
+          element.classList.toggle('reverse',
+            pos !== null && regions.some(({ from, to }) => pos >= from && pos < to));
       },
       mouseleave() {
         for (const { element } of chips)
@@ -187,24 +200,25 @@ function link(node, regions, { container = false } = {}) {
   });
 }
 
+// Returns { node, regions }, or null for an unwritten default graph.
 function renderTerm(quad, occurrence, component) {
-  const range = occurrence[component];
+  const ranges = occurrence[component];
   const term = quad[component];
-  if (component === 'graph' && !range && term.termType === 'DefaultGraph')
+  if (component === 'graph' && ranges.length === 0 && term.termType === 'DefaultGraph')
     return null;
   const node = element('span', `term ${component}`, show(term));
-  if (!range) {
+  if (ranges.length === 0) {
     node.classList.add('spanless');
     node.title = 'generated: no source text';
-    return node;
+    return { node, regions: [] };
   }
   node.classList.add('spanned');
-  const doc = view.state.doc, { from, to } = toOffsets(doc, range);
-  node.title = doc.sliceString(from, to);
-  chips.push({ element: node, from, to });
-  link(node, [{ range, component }]);
+  const regions = regionsOf(view.state.doc, ranges, component);
+  node.title = view.state.doc.sliceString(regions[0].from, regions[regions.length - 1].to);
+  chips.push({ element: node, regions });
+  link(node, regions);
   node.addEventListener('mouseleave', () => highlight(view, pinned ? pinned.regions : []));
-  return node;
+  return { node, regions };
 }
 
 function render(provenance, parseMs) {
@@ -222,12 +236,14 @@ function render(provenance, parseMs) {
     occurrences.forEach((occurrence, n) => {
       const row = element('div', 'utterance');
       row.append(element('span', 'n', `#${n + 1}`));
+      const regions = [];
       for (const component of COMPONENTS) {
-        const node = renderTerm(quad, occurrence, component);
-        if (node)
-          row.append(node);
+        const rendered = renderTerm(quad, occurrence, component);
+        if (rendered) {
+          row.append(rendered.node);
+          regions.push(...rendered.regions);
+        }
       }
-      const regions = COMPONENTS.filter(c => occurrence[c]).map(c => ({ range: occurrence[c], component: c }));
       link(row, regions, { container: true });
       card.append(row);
     });

@@ -52,11 +52,9 @@ function matchQuad(quad, match = {}) {
   return COMPONENTS.every(component => !(component in match) || matchTerm(quad[component], match[component]));
 }
 
-// null: no range; string: source text of the range; object: any of text/start/end.
+// A string is the source text of one range; an object checks any of its
+// text/start/end; a list has one entry per range, so [] means no ranges.
 function checkRange(doc, range, expected) {
-  if (expected === null)
-    return expect(range).toBeNull();
-  expect(range).not.toBeNull();
   const { text, start, end } = typeof expected === 'string' ? { text: expected } : expected;
   if (text !== undefined)
     expect(slice(doc, range)).toBe(text);
@@ -65,14 +63,19 @@ function checkRange(doc, range, expected) {
   if (end)
     expect(range.end).toEqual({ line: end[0], column: end[1] });
 }
+function checkRanges(doc, ranges, expected) {
+  const list = Array.isArray(expected) ? expected : [expected];
+  expect(ranges).toHaveLength(list.length);
+  list.forEach((item, i) => checkRange(doc, ranges[i], item));
+}
 
 function checkOccurrence(doc, occurrence, { texts = [], ...components }) {
   rejectUnknown(components, COMPONENTS, 'component');
   const expected = { ...Object.fromEntries(texts.map((text, i) => [COMPONENTS[i], text])), ...components };
   if (Object.keys(expected).length > 0)
     expect(occurrence).toBeDefined();
-  for (const [component, range] of Object.entries(expected))
-    checkRange(doc, occurrence[component], range);
+  for (const [component, ranges] of Object.entries(expected))
+    checkRanges(doc, occurrence[component], ranges);
 }
 
 function checkRow(doc, quads, provenance, row, position) {

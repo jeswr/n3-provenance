@@ -3,7 +3,7 @@ import ProvenanceParser, { ProvenanceIndex, EntityIndex, TermLocationParser as N
 import rdfDataModel from '@rdfjs/data-model';
 import { isomorphic } from 'rdf-isomorphic';
 import { EventEmitter } from 'node:events';
-import { BASE_IRI, parse, slice, frozenInterningFactory } from './helpers.js';
+import { BASE_IRI, parse, texts, frozenInterningFactory } from './helpers.js';
 
 describe('ProvenanceParser', () => {
   describe('utterance multiset semantics', () => {
@@ -23,7 +23,7 @@ describe('ProvenanceParser', () => {
       const quad = DataFactory.quad(
         DataFactory.namedNode('x:s'), DataFactory.namedNode('x:p'), DataFactory.namedNode('x:o'),
       );
-      const occurrence = { subject: null, predicate: null, object: null, graph: null };
+      const occurrence = { subject: [], predicate: [], object: [], graph: [] };
       provenance.add(quad, occurrence);
       expect(provenance.get(quad)).toEqual([occurrence]);
       provenance.add(quad, occurrence);
@@ -36,16 +36,18 @@ describe('ProvenanceParser', () => {
         DataFactory.namedNode('x:s'), DataFactory.namedNode('x:p'), DataFactory.namedNode('x:o'),
       );
       const occurrence = {
-        subject: { start: { line: 1, column: 0 }, end: { line: 1, column: 3 } },
-        predicate: null,
-        object: null,
-        graph: null,
+        subject: [{ start: { line: 1, column: 0 }, end: { line: 1, column: 3 } }],
+        predicate: [],
+        object: [],
+        graph: [],
       };
       provenance.add(quad, occurrence);
-      occurrence.subject.start.column = 99;
+      occurrence.subject[0].start.column = 99;
+      occurrence.subject.push({ start: { line: 2, column: 0 }, end: { line: 2, column: 3 } });
       const first = provenance.get(quad);
-      first[0].subject.start.column = 88;
-      expect(provenance.get(quad)[0].subject.start.column).toBe(0);
+      first[0].subject[0].start.column = 88;
+      expect(provenance.get(quad)[0].subject)
+        .toEqual([{ start: { line: 1, column: 0 }, end: { line: 1, column: 3 } }]);
     });
 
     it('does not retain partial data when a public occurrence is malformed', () => {
@@ -53,11 +55,11 @@ describe('ProvenanceParser', () => {
         DataFactory.namedNode('x:s'), DataFactory.namedNode('x:p'), DataFactory.namedNode('x:o'),
       );
       expect(() => provenance.add(quad, {
-        subject: { start: { line: 1, column: 0 }, end: { line: 1, column: 3 } },
+        subject: [{ start: { line: 1, column: 0 }, end: { line: 1, column: 3 } }],
       })).toThrow();
       expect([...provenance]).toEqual([]);
 
-      const occurrence = { subject: null, predicate: null, object: null, graph: null };
+      const occurrence = { subject: [], predicate: [], object: [], graph: [] };
       provenance.add(quad, occurrence);
       expect(provenance.get(quad)).toEqual([occurrence]);
     });
@@ -86,7 +88,7 @@ describe('ProvenanceParser', () => {
       const quad = DataFactory.quad(
         DataFactory.namedNode('x:s'), DataFactory.namedNode('x:p'), DataFactory.namedNode('x:o'),
       );
-      const occurrence = { subject: null, predicate: null, object: null, graph: null };
+      const occurrence = { subject: [], predicate: [], object: [], graph: [] };
       provenance.add(quad, occurrence);
       const range = [1, 0, 1, 3, false], quadId = entityIndex.lookup(quad);
       provenance._add(quadId, range, null, null, null);
@@ -110,7 +112,7 @@ describe('ProvenanceParser', () => {
       const quad = DataFactory.quad(
         DataFactory.namedNode('x:s'), DataFactory.namedNode('x:p'), DataFactory.namedNode('x:o'),
       );
-      provenance.add(quad, { subject: null, predicate: null, object: null, graph: null });
+      provenance.add(quad, { subject: [], predicate: [], object: [], graph: [] });
       const range = [1, 0, 1, 3, false];
       provenance._add(entityIndex.lookup(quad), range, null, null, null);
       range[4] = true;
@@ -127,8 +129,8 @@ describe('ProvenanceParser', () => {
       provenance._add(quadId, range, null, null, null);
       provenance._add(quadId, null, null, null, null);
       range[4] = true;
-      expect(provenance.get(quad).map(({ subject }) => subject && subject.start.column))
-        .toEqual([2, null]);
+      expect(provenance.get(quad).map(({ subject }) => subject.map(range => range.start.column)))
+        .toEqual([[2], []]);
     });
 
     it('resolves quads reconstructed by a store', () => {
@@ -176,15 +178,15 @@ describe('ProvenanceParser', () => {
   });
 
   describe('occurrence tracking', () => {
-    it('uses a null source token for implicit reification terms', () => {
+    it('gives implicit reification terms no ranges', () => {
       const { quads, provenance } = parse('<s> <p> <o> ~ .');
       const reifies = quads.find(q => q.predicate.value.endsWith('#reifies'));
       expect(reifies).toBeDefined();
       expect(Object.getOwnPropertySymbols(reifies)).toHaveLength(0);
       expect(Object.getOwnPropertySymbols(reifies.subject)).toHaveLength(0);
       expect(Object.getOwnPropertySymbols(reifies.object)).toHaveLength(0);
-      expect(provenance.get(reifies)[0].subject).toBeNull();
-      expect(provenance.get(reifies)[0].object).toBeNull();
+      expect(provenance.get(reifies)[0].subject).toEqual([]);
+      expect(provenance.get(reifies)[0].object).toEqual([]);
     });
 
     it('does not attach private metadata to emitted terms', () => {
@@ -204,7 +206,7 @@ describe('ProvenanceParser', () => {
       expect(quads[0].predicate).toBe(quads[0].object);
       const occurrence = provenance.get(quads[0])[0];
       expect([occurrence.subject, occurrence.predicate, occurrence.object]
-        .map(range => [range.start.column, range.end.column]))
+        .map(([range]) => [range.start.column, range.end.column]))
         .toEqual([[0, 3], [4, 7], [8, 11]]);
       expect(Object.getOwnPropertySymbols(quads[0].subject)).toHaveLength(0);
     });
@@ -216,7 +218,7 @@ describe('ProvenanceParser', () => {
       expect(quad.subject.termType).toBe('Variable');
       expect(quad.predicate.value).toBe(`${BASE_IRI}p`);
       expect(quad.object.value).toBe(`${BASE_IRI}o`);
-      expect(slice(doc, provenance.get(quad)[0].subject)).toBe('<x>');
+      expect(texts(doc, provenance.get(quad)[0].subject)).toEqual(['<x>']);
     });
 
     it('passes raw factory terms to inherited prefix callbacks', () => {
@@ -339,7 +341,7 @@ describe('ProvenanceParser', () => {
 
     it('accepts N3Lexer itself as a custom lexer for multiline tokens', () => {
       const doc = '<s> <p> """a\nb""" .', { quads, provenance } = parse(doc, { lexer: new Lexer() });
-      expect(slice(doc, provenance.get(quads[0])[0].object)).toBe('"""a\nb"""');
+      expect(texts(doc, provenance.get(quads[0])[0].object)).toEqual(['"""a\nb"""']);
     });
 
     it('validates coordinates on every custom-lexer token', () => {
@@ -367,7 +369,7 @@ describe('ProvenanceParser', () => {
       const events = [], doc = '[ <p> <o> ] <q> <r> .';
       const result = parse(doc, { onQuad: (quad, occurrence) => events.push([quad, occurrence]) });
       expect(events.map(([quad]) => quad)).toEqual(result.quads);
-      expect(slice(doc, events[0][1].subject)).toBe('[ <p> <o> ]');
+      expect(texts(doc, events[0][1].subject)).toEqual(['[', ']']);
     });
 
     it('emits completed quads before a later parse error', () => {
@@ -388,10 +390,10 @@ describe('ProvenanceParser', () => {
         onQuad: (...args) => events.push(args),
       }).parse('[ <p> <o> ] . <unfinished>')).toThrow();
       expect(events).toHaveLength(1);
-      expect(events[0][1].subject).toEqual({
-        start: { line: 1, column: 0 },
-        end: { line: 1, column: 11 },
-      });
+      expect(events[0][1].subject).toEqual([
+        { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } },
+        { start: { line: 1, column: 10 }, end: { line: 1, column: 11 } },
+      ]);
     });
 
     it('stops emitting when an onQuad callback throws', () => {
@@ -436,12 +438,12 @@ describe('Callback-based provenance integration', () => {
     expect(isomorphic(quads, new Parser({ baseIRI: BASE_IRI, format }).parse(doc))).toBe(true);
     const occurrences = quads.map(quad => [quad, provenance.get(quad)[0]]);
     const lexical = occurrences.flatMap(([quad, occurrence]) =>
-      ['subject', 'predicate', 'object'].filter(component => occurrence[component] &&
-        quad[component].value.endsWith('#nil')).map(component => slice(doc, occurrence[component])));
-    expect(lexical).toContain('()');
+      ['subject', 'predicate', 'object'].filter(component => occurrence[component].length > 0 &&
+        quad[component].value.endsWith('#nil')).map(component => texts(doc, occurrence[component])));
+    expect(lexical).toContainEqual(['(', ')']);
     const tails = occurrences.filter(([quad]) => quad.predicate.value.endsWith('#rest') &&
       quad.object.value.endsWith('#nil'));
-    expect(tails.map(([, occurrence]) => occurrence.object)).toEqual(tails.map(() => null));
+    expect(tails.map(([, occurrence]) => occurrence.object)).toEqual(tails.map(() => []));
   });
 
   it.each([
@@ -456,10 +458,10 @@ describe('Callback-based provenance integration', () => {
     for (const quad of quads) {
       const occurrence = provenance.get(quad)[0];
       const lexical = ['subject', 'predicate', 'object'].filter(component =>
-        occurrence[component] && quad[component].termType === 'NamedNode' &&
+        occurrence[component].length > 0 && quad[component].termType === 'NamedNode' &&
         quad[component].value.startsWith(BASE_IRI));
-      expect(lexical.map(component => slice(doc, occurrence[component])))
-        .toEqual(lexical.map(component => `<${quad[component].value.slice(BASE_IRI.length)}>`));
+      expect(lexical.map(component => texts(doc, occurrence[component])))
+        .toEqual(lexical.map(component => [`<${quad[component].value.slice(BASE_IRI.length)}>`]));
     }
   });
 

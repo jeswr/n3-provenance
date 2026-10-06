@@ -18,6 +18,9 @@ export function offset(doc, position) {
 export function slice(doc, range) {
   return doc.slice(offset(doc, range.start), offset(doc, range.end));
 }
+export function texts(doc, ranges) {
+  return ranges.map(range => slice(doc, range));
+}
 export function frozenInterningFactory() {
   const terms = new Map(), factory = Object.create(DataFactory);
   factory.namedNode = value => {
