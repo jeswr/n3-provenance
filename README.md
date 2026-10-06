@@ -53,7 +53,10 @@ console.log(provenance.get(rebuiltQuad)); // Two occurrences of this RDF quad.
 
 `ProvenanceParser.parse` takes a string and returns `{ quads, provenance,
 prefixes }`. Each occurrence is `{ subject, predicate, object, graph }`. A
-component is either `null` (no lexical spelling) or:
+component is an array of ranges in document order: empty when the term has no
+lexical spelling, one range for a simple term, and for a compound term (`[ … ]`,
+`( … )`, `{ … }`, `<<( … )>>`, `<< … >>`) two, its opening and its closing
+delimiter. Each range is:
 
 ```js
 {
@@ -64,12 +67,15 @@ component is either `null` (no lexical spelling) or:
 
 Lines are one-based and columns count zero-based UTF-16 code units. Ends are
 exclusive. CRLF is one line break; CR and LF also break lines. Ranges refer to
-original source spellings, including escape sequences. Literals include their
-language, direction, or datatype suffix; compounds include their closing token.
+original source spellings, including escape sequences. A literal's one range
+includes its language, direction, or datatype suffix. A compound term's two
+ranges leave out what is written between its delimiters: those terms are
+located by their own quads, so a consumer need not recognize delimiters in the
+source text to tell them apart.
 
 ## Web demo
 
-`npm run webapp` serves an editor at <http://localhost:8000/> (`npm run webapp:build` just bundles it). Type or load a document in the left pane (or pass it as `?data=<document>`, optionally with `&format=<media type>`) and each quad's utterances are listed on the right. Hovering a subject, predicate, object or graph term, or a whole utterance, highlights where it was written in the editor; click to pin a highlight. Hovering text in the editor lights up the terms written there.
+`npm run webapp` serves an editor at <http://localhost:8000/> (`npm run webapp:build` just bundles it). Type or load a document in the left pane (or pass it as `?data=<document>`, optionally with `&format=<media type>`) and each quad's utterances are listed on the right. Hovering a subject, predicate, object or graph term, or a whole utterance, highlights where it was written in the editor; click to pin a highlight. A term written as a nested structure (a `[ … ]` property list, a `( … )` collection, a `{ … }` formula or a `<<( … )>>` triple term) is located at its opening and closing delimiters, which is what the editor highlights: the terms written inside it carry their own highlights. Hovering text in the editor lights up the terms written there.
 
 ## What is tracked
 
@@ -80,16 +86,16 @@ language, direction, or datatype suffix; compounds include their closing token.
   abbreviations, graphs, `()`, nonempty lists, property lists, formulas, and
   triple terms carry ranges.
 - Parser-generated terms, such as list-tail nodes, `rdf:first`/`rdf:rest`
-  predicates, and reification scaffolding, carry `null` ranges.
+  predicates, and reification scaffolding, carry no ranges.
 - N3 inverse predicates attach source ranges to the resulting quad positions.
 - Frozen and interning RDF/JS factories work: source metadata is held in temporary
   occurrence wrappers rather than written onto emitted RDF/JS terms.
 
 `ProvenanceIndex.get(quad)` returns fresh occurrence objects. `add(quad,
 occurrence)` copies public range data. Iteration yields `[quad, occurrences]`
-pairs. Internally, an occurrence uses 16 numeric values (four coordinates for
-each component); zero line numbers encode `null`. Open compound ranges remain
-pending until parsing finishes. The exported `EntityIndex` can also be shared
+pairs. Internally, an occurrence stores each component's range count, then
+four coordinates per range. Open compound ranges remain pending until parsing
+finishes. The exported `EntityIndex` can also be shared
 with `new Store({ entityIndex })`.
 
 The package exports `ProvenanceParser` (also the default export),

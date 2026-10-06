@@ -2,7 +2,7 @@
 import { Readable } from 'node:stream';
 import type * as RDF from '@rdfjs/types';
 import ProvenanceParser, { TermLocationParser } from '../../src/index.js';
-import type { Occurrence, ProvenanceParseResult } from '../../src/index.js';
+import type { Occurrence, ProvenanceParseResult, Range } from '../../src/index.js';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 function expectType<T extends true>(): void {}
@@ -63,5 +63,7 @@ const result = new ProvenanceParser({
 }).parse('<s> <p> <o> .');
 expectType<Equal<typeof result, ProvenanceParseResult>>();
 expectType<Equal<ReturnType<typeof result.provenance.get>, Occurrence[]>>();
+// A component is located by an array of ranges, empty for a generated term.
+expectType<Equal<Occurrence['subject'], Range[]>>();
 // @ts-expect-error ProvenanceParser only parses strings
 new ProvenanceParser().parse(Readable.from(['<s> <p> <o> .']));

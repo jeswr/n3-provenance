@@ -77,9 +77,11 @@ export interface ParserContext {
   sourceRange?: MutableRange;
 }
 
-// A compound term's range: start line and column, end line and column, and
-// whether the closing token has been seen.
-export type MutableRange = [number, number, number, number, boolean];
+// A range under construction: a token's start line and column, end line and
+// column, and whether it is complete. A literal's range grows to take in its
+// suffix tokens. A compound term's range is its opening token's and, once the
+// closing token has been read, holds that token's four coordinates as well.
+export type MutableRange = [number, number, number, number, boolean, ...number[]];
 
 export declare class N3Parser {
   constructor(options?: N3ParserOptions);

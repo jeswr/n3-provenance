@@ -53,10 +53,20 @@ function tokenRange(token: Token, closed: boolean): MutableRange {
   return [token.line, token.start, token.endLine || token.line, token.end, closed];
 }
 
-function closeRange(range: MutableRange, token: Token): void {
+// A literal's range grows to include a language, direction, or datatype suffix.
+function extendRange(range: MutableRange, token: Token): void {
   range[2] = token.endLine || token.line;
   range[3] = token.end;
+}
+
+// A compound term's range gains its closing token as a second range. The
+// grammar can report that token twice, once while constructing a triple term
+// and once while restoring its context.
+function closeRange(range: MutableRange, token: Token): void {
+  if (range[4])
+    return;
   range[4] = true;
+  range.push(token.line, token.start, token.endLine || token.line, token.end);
 }
 
 function occurrenceRange(value: ParserValue): SourceRange | null {
@@ -212,7 +222,7 @@ export default class N3TermLocationParser extends N3Parser {
     if (this._literalRange !== null &&
         (token.type === 'langcode' || token.type === 'dircode' ||
          token.type === 'type' || token.type === 'typeIRI'))
-      closeRange(this._literalRange, token);
+      extendRange(this._literalRange, token);
 
     // A dircode replaces the language-only term that was constructed for the
     // same lexical literal, so its factory call still belongs to that range.
