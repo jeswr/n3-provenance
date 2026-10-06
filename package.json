@@ -41,7 +41,7 @@
     "n3": "^2.13.4"
   },
   "devDependencies": {
-    "@rdfjs/data-model": "1.3.4",
+    "@rdfjs/data-model": "2.1.2",
     "eslint": "10.9.1",
     "globals": "17.11.0",
     "jest": "30.4.2",
