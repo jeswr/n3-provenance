@@ -73,11 +73,30 @@ function toOffsets(doc, range) {
   return { from: at(range.start), to: at(range.end) };
 }
 
+// A region is { from, to, component } in editor offsets.
+//
+// The API locates a term by one range. A term written as a nested structure --
+// a blank node's [ property list ], a collection's ( ... ), a formula's
+// { ... }, a triple term's <<( ... )>> -- spans everything between its
+// delimiters, including terms located by their own quads. To paint just the
+// delimiters, as shex.js's data pane does, the caller has to recognize them
+// in the source text.
+const DELIMITERS = [['<<(', ')>>'], ['<<', '>>'], ['[', ']'], ['(', ')'], ['{', '}']];
+
+function regionsOf(text, doc, range, component) {
+  const { from, to } = toOffsets(doc, range);
+  for (const [open, close] of DELIMITERS)
+    if (to - from >= open.length + close.length && text.startsWith(open, from) && text.endsWith(close, to))
+      return [{ from, to: from + open.length, component }, { from: to - close.length, to, component }];
+  return [{ from, to, component }];
+}
+
 function highlight(view, regions, { scroll = false } = {}) {
-  const marks = regions.map(({ range, component }) => {
-    const { from, to } = toOffsets(view.state.doc, range);
-    return Decoration.mark({ class: `hl-${component}` }).range(from, to);
-  }).filter(mark => mark.to > mark.from);
+  const length = view.state.doc.length;   // regions may predate an edit the reparse has not caught up with
+  const marks = regions
+    .map(({ from, to, component }) => ({ from: Math.min(from, length), to: Math.min(to, length), component }))
+    .filter(({ from, to }) => to > from)
+    .map(({ from, to, component }) => Decoration.mark({ class: `hl-${component}` }).range(from, to));
   const effects = [hover.effect.of(Decoration.set(marks, true))];
   if (scroll && marks.length > 0)
     effects.push(EditorView.scrollIntoView(marks[0].from, { y: 'nearest' }));
@@ -119,7 +138,7 @@ if ([...formatSelect.options].some(option => option.value === params.get('format
   formatSelect.value = params.get('format');
 
 let pinned = null;          // regions that stay lit when the mouse leaves
-let chips = [];             // { element, from, to } for editor -> result lookup
+let chips = [];             // { element, regions } for editor -> result lookup
 let parseTimer;
 
 const view = new EditorView({
@@ -139,8 +158,9 @@ const view = new EditorView({
     EditorView.domEventHandlers({
       mousemove(event, editor) {
         const pos = editor.posAtCoords({ x: event.clientX, y: event.clientY });
-        for (const { element, from, to } of chips)
-          element.classList.toggle('reverse', pos !== null && pos >= from && pos < to);
+        for (const { element, regions } of chips)
+          element.classList.toggle('reverse',
+            pos !== null && regions.some(({ from, to }) => pos >= from && pos < to));
       },
       mouseleave() {
         for (const { element } of chips)
@@ -187,7 +207,8 @@ function link(node, regions, { container = false } = {}) {
   });
 }
 
-function renderTerm(quad, occurrence, component) {
+// Returns { node, regions }, or null for an unwritten default graph.
+function renderTerm(quad, occurrence, component, text) {
   const range = occurrence[component];
   const term = quad[component];
   if (component === 'graph' && !range && term.termType === 'DefaultGraph')
@@ -196,18 +217,19 @@ function renderTerm(quad, occurrence, component) {
   if (!range) {
     node.classList.add('spanless');
     node.title = 'generated: no source text';
-    return node;
+    return { node, regions: [] };
   }
   node.classList.add('spanned');
   const doc = view.state.doc, { from, to } = toOffsets(doc, range);
   node.title = doc.sliceString(from, to);
-  chips.push({ element: node, from, to });
-  link(node, [{ range, component }]);
+  const regions = regionsOf(text, doc, range, component);
+  chips.push({ element: node, regions });
+  link(node, regions);
   node.addEventListener('mouseleave', () => highlight(view, pinned ? pinned.regions : []));
-  return node;
+  return { node, regions };
 }
 
-function render(provenance, parseMs) {
+function render(provenance, parseMs, text) {
   results.replaceChildren();
   chips = [];
   let quads = 0, utterances = 0;
@@ -222,12 +244,14 @@ function render(provenance, parseMs) {
     occurrences.forEach((occurrence, n) => {
       const row = element('div', 'utterance');
       row.append(element('span', 'n', `#${n + 1}`));
+      const regions = [];
       for (const component of COMPONENTS) {
-        const node = renderTerm(quad, occurrence, component);
-        if (node)
-          row.append(node);
+        const rendered = renderTerm(quad, occurrence, component, text);
+        if (rendered) {
+          row.append(rendered.node);
+          regions.push(...rendered.regions);
+        }
       }
-      const regions = COMPONENTS.filter(c => occurrence[c]).map(c => ({ range: occurrence[c], component: c }));
       link(row, regions, { container: true });
       card.append(row);
     });
@@ -248,7 +272,7 @@ function reparse() {
       format: formatSelect.value,
       blankNodePrefix: '',
     }).parse(text);
-    render(provenance, performance.now() - started);
+    render(provenance, performance.now() - started, text);
   }
   catch (error) {
     results.replaceChildren(element('pre', 'error', error.message));
