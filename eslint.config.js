@@ -13,7 +13,7 @@ const rules = {
 };
 
 export default [
-  { ignores: ['coverage/**', 'dist/**', 'node_modules/**'] },
+  { ignores: ['coverage/**', 'dist/**', 'node_modules/**', 'webapp/dist/**'] },
   {
     files: ['**/*.js', '**/*.cjs'],
     languageOptions: {
@@ -39,6 +39,10 @@ export default [
       '@typescript-eslint/no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }],
       '@typescript-eslint/no-non-null-assertion': 'off',
     },
+  },
+  {
+    files: ['webapp/**'],
+    languageOptions: { globals: globals.browser },
   },
   {
     files: ['test/**'],

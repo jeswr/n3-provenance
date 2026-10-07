@@ -67,6 +67,10 @@ exclusive. CRLF is one line break; CR and LF also break lines. Ranges refer to
 original source spellings, including escape sequences. Literals include their
 language, direction, or datatype suffix; compounds include their closing token.
 
+## Web demo
+
+`npm run webapp` serves an editor at <http://localhost:8000/> (`npm run webapp:build` just bundles it). Type or load a document in the left pane (or pass it as `?data=<document>`, optionally with `&format=<media type>`) and each quad's utterances are listed on the right. Hovering a subject, predicate, object or graph term, or a whole utterance, highlights where it was written in the editor; click to pin a highlight. Hovering text in the editor lights up the terms written there.
+
 ## What is tracked
 
 - Each repeated quad remains a distinct occurrence. The index groups by RDF
